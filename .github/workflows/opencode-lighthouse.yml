@@ -9,6 +9,10 @@ on:
 
 jobs:
   lighthouse:
+    # Ночной прогон запускает cron, а ручной — человек. Ботов пропускаем, как
+    # в остальных воркфлоу агента: запуск через API от бота не должен тратить
+    # минуты и токены
+    if: github.event_name == 'schedule' || !endsWith(github.actor, '[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Ручной запуск рядом с ночным увидел бы, что открытого issue нет, и оба
@@ -17,14 +21,12 @@ jobs:
       group: opencode-lighthouse
       cancel-in-progress: false
     # Агент работает правами GitHub App, полученными через OIDC, а issue
-    # публикует шаг воркфлоу с токеном раннера, поэтому токену нужен
-    # issues: write. contents и pull-requests: write этому воркфлоу не нужны:
-    # PR action открывает правами App. Их требует задание урока, поэтому
-    # токен раннера агенту не передаётся
+    # публикует шаг воркфлоу с токеном раннера, поэтому токену нужен только
+    # issues: write. Коммитов и PR воркфлоу не делает, поэтому contents и
+    # pull-requests: write ему не выданы
     permissions:
       id-token: write
-      contents: write
-      pull-requests: write
+      contents: read
       issues: write
     env:
       # Адрес держим переменной репозитория, а не в воркфлоу: при переезде
@@ -170,6 +172,9 @@ jobs:
             }
         with:
           model: console-anthropic/claude-haiku-5-5
+          # Как в opencode.yml: сессию по ссылке не публикуем. Здесь это и
+          # вторая линия после запрета читать .git
+          share: false
           # Ответить агенту некуда: треда нет, а лог прогона к утру никто не
           # читает. Поэтому итог — issue с меткой lighthouse
           prompt: |
