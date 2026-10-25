@@ -1,0 +1,109 @@
+name: opencode-triage
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    # Как и в opencode.yml: ботов пропускаем, оценивать задачи участников
+    if: |
+      github.event.issue.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run opencode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Провайдер тот же, что в opencode.yml. Оценка идёт на Haiku: задача
+          # простая, а Opus для critical-тредов включается уже по метке. Код
+          # не меняется, субагент analyst не вызывается, разрешения, которые
+          # спрашивают человека, запрещены
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_CONFIG_CONTENT: |
+            {
+              "small_model": "console-anthropic/claude-haiku-5-5",
+              "permission": {
+                "edit": "deny",
+                "task": "deny",
+                "doom_loop": "deny",
+                "external_directory": "deny",
+                "read": {
+                  "*": "allow",
+                  "*.env": "deny",
+                  "*.env.*": "deny",
+                  "*.env.example": "allow"
+                }
+              },
+              "provider": {
+                "console-anthropic": {
+                  "npm": "@ai-sdk/anthropic",
+                  "options": {
+                    "baseURL": "https://opencode.ai/inference/custom/conn_01M5SMZ1CFG6C401PF3F0S7A3B",
+                    "apiKey": "{env:OPENCODE_API_KEY}"
+                  },
+                  "models": { "claude-haiku-5-5": {} }
+                }
+              }
+            }
+        with:
+          model: console-anthropic/claude-haiku-5-5
+          prompt: |
+            Оцени новое issue. Код не меняй и субагентов не вызывай.
+
+            Прочитай AGENTS.md, GLOSSARY.md и код, который issue затрагивает.
+            Ответь по-русски, коротко:
+            - что затронуто: файлы и слои (контракт, бекенд, фронтенд);
+            - насколько задача ясна и чего в ней не хватает;
+            - ответственная ли она и почему.
+
+            Задача ответственная, если выполняется хоть одно:
+            - правка затрагивает несколько слоёв: контракт, бекенд и фронтенд;
+            - доменная логика: слоты, часовые пояса, окно записи, пересечения
+              и отмена бронирований;
+            - правка меняет осознанное решение: ADR в docs/adr, правило в
+              GLOSSARY.md или комментарий в коде со ссылкой на пункт
+              спецификации вида (26.2);
+            - безопасность или целостность данных.
+            Тексты, оформление и правка внутри одного компонента без доменной
+            логики — не ответственная задача.
+
+            Последней строкой ответа напиши ровно одну из двух строк:
+            Оценка: critical
+            Оценка: обычная
+
+  label:
+    # Агент сам метки ставить не может: токен GitHub App остаётся у action.
+    # Метку по последней строке его ответа ставит этот job
+    needs: triage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const issue_number = context.payload.issue.number
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+            })
+            const verdict = comments
+              .filter((comment) => comment.user.login === 'opencode-agent[bot]')
+              .at(-1)
+              ?.body.match(/^Оценка: (critical|обычная)$/m)?.[1]
+            core.info(`Оценка агента: ${verdict ?? 'не найдена'}`)
+            if (verdict === 'critical') {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['critical'] })
+            }

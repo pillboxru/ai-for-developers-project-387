@@ -70,7 +70,7 @@
 
 ## Агент в GitHub Actions
 
-Раздел для запуска в GitHub Actions (`GITHUB_ACTIONS=true`): задачу дали комментарием `/oc`, `/opencode` или `/opus` в issue или PR. Воркфлоу — `.github/workflows/opencode.yml`.
+Раздел для запуска в GitHub Actions (`GITHUB_ACTIONS=true`): задачу дали комментарием `/oc`, `/opencode` или `/opus` в issue или PR. Воркфлоу — `.github/workflows/opencode.yml`. Новое issue от участника сначала оценивает `.github/workflows/opencode-triage.yml`: разбор комментарием и метка `critical` для ответственной задачи, по которой следующие `/oc` в треде идут на Opus.
 
 - Комментарий с командой и есть поручение пользователя, спросить его по ходу работы нельзя. Если задача неясна или требует решения человека, ничего не меняй и задай вопросы в ответе.
 - Перед `make test` и `make check` выполни `make setup`: на раннере нет зависимостей и Chromium.
