@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { focusManager } from '@tanstack/react-query'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -7,6 +8,7 @@ import {
   handleListBookings,
 } from '../../api/generated/msw.gen.ts'
 import type { ApiError, Booking } from '../../api/generated/types.gen.ts'
+import { createQueryClient } from '../../api/queryClient.ts'
 import { renderApp } from '../../test/renderApp.tsx'
 import { server } from '../../test/server.ts'
 
@@ -374,5 +376,141 @@ describe('отмена бронирования', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: dialogName })).toBeInTheDocument()
+  })
+})
+
+describe('автообновление списка (26.2 отменён)', () => {
+  const pollInterval = 30_000
+
+  // setTimeout не подменяем: на нём стоят MSW и ожидания findBy*
+  function useFakeClock() {
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'Date'],
+      now,
+    })
+  }
+
+  function serveOwnerAndBookings(current: () => Booking[]) {
+    server.use(
+      handleGetOwner({
+        body: { name: 'Анна Смирнова', timeZone: 'Europe/Moscow' },
+      }),
+      handleListBookings(() => HttpResponse.json(current())),
+    )
+  }
+
+  it('подхватывает новое бронирование по интервалу', async () => {
+    let stored = [
+      booking('2026-10-26T07:00:00Z', '2026-10-26T07:30:00Z', {
+        name: 'Старый',
+      }),
+    ]
+    serveOwnerAndBookings(() => stored)
+    useFakeClock()
+    renderApp('/admin/bookings', { queryClient: createQueryClient() })
+    await screen.findByText('Старый')
+
+    stored = [
+      ...stored,
+      booking('2026-10-26T08:00:00Z', '2026-10-26T08:30:00Z', {
+        name: 'Новый',
+      }),
+    ]
+    await act(() => vi.advanceTimersByTimeAsync(pollInterval))
+
+    expect(await screen.findByText('Новый')).toBeInTheDocument()
+    expect(screen.getByText('Старый')).toBeInTheDocument()
+  })
+
+  it('«Идёт сейчас» появляется и пропадает со сдвигом времени при тех же данных', async () => {
+    // 19:05–19:35 по Москве
+    const stored = [booking('2026-10-25T16:05:00Z', '2026-10-25T16:35:00Z')]
+    serveOwnerAndBookings(() => stored)
+    useFakeClock()
+    renderApp('/admin/bookings', { queryClient: createQueryClient() })
+    const card = within(await screen.findByRole('article'))
+    expect(card.queryByText('Идёт сейчас')).not.toBeInTheDocument()
+
+    vi.setSystemTime(new Date('2026-10-25T16:10:00Z'))
+    await act(() => vi.advanceTimersByTimeAsync(pollInterval))
+    expect(await card.findByText('Идёт сейчас')).toBeInTheDocument()
+
+    vi.setSystemTime(new Date('2026-10-25T16:40:00Z'))
+    await act(() => vi.advanceTimersByTimeAsync(pollInterval))
+    await waitFor(() =>
+      expect(card.queryByText('Идёт сейчас')).not.toBeInTheDocument(),
+    )
+  })
+
+  it('перечитывает список при возврате на вкладку', async () => {
+    let requests = 0
+    server.use(
+      handleGetOwner({
+        body: { name: 'Анна Смирнова', timeZone: 'Europe/Moscow' },
+      }),
+      handleListBookings(() => {
+        requests += 1
+        return HttpResponse.json([
+          booking('2026-10-26T07:00:00Z', '2026-10-26T07:30:00Z'),
+        ])
+      }),
+    )
+    renderApp('/admin/bookings', { queryClient: createQueryClient() })
+    await screen.findByRole('article')
+    expect(requests).toBe(1)
+
+    await act(async () => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+    })
+
+    await waitFor(() => expect(requests).toBe(2))
+  })
+
+  it('модалка отмены остаётся открытой, когда опрос вернул пустой список', async () => {
+    let stored = [booking('2026-10-26T07:00:00Z', '2026-10-26T07:30:00Z')]
+    server.use(
+      handleCancelBooking(() =>
+        HttpResponse.json<ApiError>(
+          { code: 'booking_ended', message: 'Бронирование уже закончилось' },
+          { status: 409 },
+        ),
+      ),
+    )
+    serveOwnerAndBookings(() => stored)
+    useFakeClock()
+    renderApp('/admin/bookings', { queryClient: createQueryClient() })
+    fireEvent.click(
+      within(await screen.findByRole('article')).getByRole('button', {
+        name: 'Отменить',
+      }),
+    )
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Отменить бронирование?',
+    })
+
+    stored = []
+    await act(() => vi.advanceTimersByTimeAsync(pollInterval))
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Предстоящих бронирований нет',
+      }),
+    ).toBeInTheDocument()
+    expect(dialog).toBeInTheDocument()
+    expect(
+      screen.getByRole('dialog', { name: 'Отменить бронирование?' }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Отменить бронирование' }),
+    )
+    expect(
+      await screen.findByText('Бронирование уже закончилось'),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Отменить бронирование?' }),
+      ).not.toBeInTheDocument(),
+    )
   })
 })

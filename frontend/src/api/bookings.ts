@@ -14,6 +14,18 @@ export const createBookingMutationOptions = () => createBookingMutation()
 // и отменённые, по началу. Дни раскладывает экран по поясу владельца
 export const bookingsQuery = () => listBookingsOptions()
 
+const bookingsPollInterval = 30_000
+
+// Тот же список для экрана владельца, который открыт часами: бронирования
+// создают гости из других вкладок и с других устройств (26.2 отменён). Ключ
+// тот же, поэтому invalidateBookings перечитывает и этот запрос. Фоновая
+// вкладка не опрашивает сервер, а при возврате на неё список перечитывается
+export const watchedBookingsQuery = () => ({
+  ...bookingsQuery(),
+  refetchInterval: bookingsPollInterval,
+  refetchOnWindowFocus: true,
+})
+
 // Отмена владельцем. Повтор отвечает уже отменённым бронированием,
 // закончившееся — 409 booking_ended. Вернуть отмену нельзя
 export const cancelBookingMutationOptions = () => cancelBookingMutation()

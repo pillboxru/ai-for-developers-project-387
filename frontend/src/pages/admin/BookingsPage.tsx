@@ -1,9 +1,9 @@
 import { Container, Group, Stack, Text, Title } from '@mantine/core'
 import { IconCalendarEvent, IconWorld } from '@tabler/icons-react'
 import { useDisclosure } from '@mantine/hooks'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useId, useState } from 'react'
-import { bookingsQuery } from '../../api/bookings.ts'
+import { watchedBookingsQuery } from '../../api/bookings.ts'
 import type { Booking } from '../../api/generated/types.gen.ts'
 import { ownerQuery } from '../../api/owner.ts'
 import { PageEmptyState } from '../../components/PageEmptyState.tsx'
@@ -13,7 +13,7 @@ import { CancelBookingModal } from './CancelBookingModal.tsx'
 import { UpcomingBookingCard } from './UpcomingBookingCard.tsx'
 
 export function BookingsPage() {
-  const bookings = useQuery(bookingsQuery())
+  const bookings = useQuery(watchedBookingsQuery())
   const owner = useQuery(ownerQuery())
 
   return (
@@ -21,44 +21,20 @@ export function BookingsPage() {
       <Title order={1}>Бронирования</Title>
       <QueryContent query={owner}>
         {({ timeZone }) => (
-          <QueryContent query={bookings}>
-            {(list) =>
-              list.length === 0 ? (
-                <PageEmptyState
-                  icon={IconCalendarEvent}
-                  title="Предстоящих бронирований нет"
-                  description="Здесь появятся бронирования гостей."
-                />
-              ) : (
-                <UpcomingBookings
-                  bookings={list}
-                  ownerTimeZone={timeZone}
-                  loadedAt={bookings.dataUpdatedAt}
-                />
-              )
-            }
-          </QueryContent>
+          <BookingsContent bookings={bookings} ownerTimeZone={timeZone} />
         )}
       </QueryContent>
     </Container>
   )
 }
 
-function UpcomingBookings({
+function BookingsContent({
   bookings,
   ownerTimeZone,
-  loadedAt,
 }: {
-  bookings: Booking[]
+  bookings: UseQueryResult<Booking[]>
   ownerTimeZone: string
-  // Когда пришёл список, мс от эпохи
-  loadedAt: number
 }) {
-  // Автообновления нет (26.2): «Сегодня» и «Идёт сейчас» считаются на момент
-  // загрузки списка: почти тот же момент, по которому сервер отобрал предстоящие.
-  // Перезагрузка списка (например, после отмены) пересчитывает их
-  const now = new Date(loadedAt)
-
   const [cancelOpened, cancelModal] = useDisclosure(false)
   // Остаётся заданным и после закрытия: модалка показывает бронирование,
   // пока уходит с экрана
@@ -67,6 +43,58 @@ function UpcomingBookings({
     setCancelling(booking)
     cancelModal.open()
   }
+
+  return (
+    <>
+      <QueryContent query={bookings}>
+        {(list) =>
+          list.length === 0 ? (
+            <PageEmptyState
+              icon={IconCalendarEvent}
+              title="Предстоящих бронирований нет"
+              description="Здесь появятся бронирования гостей."
+            />
+          ) : (
+            <UpcomingBookings
+              bookings={list}
+              ownerTimeZone={ownerTimeZone}
+              loadedAt={bookings.dataUpdatedAt}
+              onCancel={openCancel}
+            />
+          )
+        }
+      </QueryContent>
+      {/* Вне списка: опрос мог его опустошить, а подтверждение отмены
+          закончившегося звонка должно дойти до уведомления */}
+      {cancelling && (
+        <CancelBookingModal
+          opened={cancelOpened}
+          onClose={cancelModal.close}
+          booking={cancelling}
+          ownerTimeZone={ownerTimeZone}
+        />
+      )}
+    </>
+  )
+}
+
+function UpcomingBookings({
+  bookings,
+  ownerTimeZone,
+  loadedAt,
+  onCancel,
+}: {
+  bookings: Booking[]
+  ownerTimeZone: string
+  // Когда пришёл список, мс от эпохи
+  loadedAt: number
+  onCancel: (booking: Booking) => void
+}) {
+  // «Сегодня» и «Идёт сейчас» считаются на момент загрузки списка: почти тот
+  // же момент, по которому сервер отобрал предстоящие. Список опрашивается
+  // (watchedBookingsQuery), и вместе с ним сдвигается now, поэтому пометка
+  // и дни отстают от реальности не больше интервала опроса
+  const now = new Date(loadedAt)
 
   return (
     <Stack mt="lg" gap="xl">
@@ -82,17 +110,9 @@ function UpcomingBookings({
           day={day}
           ownerTimeZone={ownerTimeZone}
           now={now}
-          onCancel={openCancel}
+          onCancel={onCancel}
         />
       ))}
-      {cancelling && (
-        <CancelBookingModal
-          opened={cancelOpened}
-          onClose={cancelModal.close}
-          booking={cancelling}
-          ownerTimeZone={ownerTimeZone}
-        />
-      )}
     </Stack>
   )
 }
