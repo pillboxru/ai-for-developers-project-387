@@ -2,26 +2,32 @@ name: opencode-review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-
-# Новый push в тот же PR отменяет ревью, которое ещё не закончилось
-concurrency:
-  group: opencode-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+    # labeled — чтобы метка critical, поставленная после открытия, сразу
+    # запускала ревью на Opus
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
 
 jobs:
   review:
     # Ревьюим код людей из этого репозитория. PR от ботов (release-please,
     # агент) и события от ботов пропускаем: action проверяет права записи у
     # того, кто запустил событие, а у бота их нет. PR агента проверяет
-    # человек командой /oc в обсуждении
+    # человек командой /oc в обсуждении. По той же причине push агента в PR
+    # человека (после /oc) ревью не запускает. Из меток ревью запускает
+    # только critical
     if: |
       !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       !endsWith(github.event.pull_request.user.login, '[bot]') &&
-      !endsWith(github.actor, '[bot]')
+      !endsWith(github.actor, '[bot]') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'critical')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Новый push в тот же PR отменяет ревью, которое ещё не закончилось.
+    # На уровне job, а не воркфлоу: пропущенный прогон (например, на другую
+    # метку) иначе отменял бы идущее ревью
+    concurrency:
+      group: opencode-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     # Замечания оставляет агент правами GitHub App, токену раннера чтение
     permissions:
       id-token: write
