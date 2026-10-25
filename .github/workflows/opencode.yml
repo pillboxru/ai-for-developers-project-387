@@ -1,0 +1,61 @@
+name: opencode
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  opencode:
+    # Команда в начале комментария или после пробела: голый contains
+    # срабатывал бы на ссылки https://opencode.ai/... в ответах самого агента.
+    # Комментарии ботов пропускаем, чтобы агент не запускал сам себя. Звать
+    # агента могут только участники: репозиторий публичный, и минуты Actions
+    # тратились бы на любой /oc от прохожего
+    if: |
+      (startsWith(github.event.comment.body, '/oc') ||
+       contains(github.event.comment.body, ' /oc') ||
+       startsWith(github.event.comment.body, '/opencode') ||
+       contains(github.event.comment.body, ' /opencode')) &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    # Токену раннера только чтение: пишет агент правами GitHub App, которые
+    # получает через OIDC
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run opencode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Action ставит OpenCode 1, а он подключает провайдеров рабочего
+          # пространства только после входа в Console через браузер. Поэтому
+          # те же провайдеры описаны здесь: запросы идут через шлюз Console с
+          # ключом сервисного аккаунта, токены оплачивает подключённый
+          # провайдер, а расход попадает в бюджет сервисного аккаунта. Тот же
+          # ключ включает и модели opencode/*, оплачиваемые с баланса Console:
+          # их не выбирают ни model, ни small_model
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_CONFIG_CONTENT: |
+            {
+              "small_model": "console-anthropic/claude-haiku-5-5",
+              "provider": {
+                "console-anthropic": {
+                  "npm": "@ai-sdk/anthropic",
+                  "options": {
+                    "baseURL": "https://opencode.ai/inference/custom/conn_01M5SMZ1CFG6C401PF3F0S7A3B",
+                    "apiKey": "{env:OPENCODE_API_KEY}"
+                  },
+                  "models": { "claude-sonnet-5-5": {}, "claude-haiku-5-5": {} }
+                }
+              }
+            }
+        with:
+          model: console-anthropic/claude-sonnet-5-5
