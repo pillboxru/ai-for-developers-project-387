@@ -22,8 +22,8 @@ jobs:
       cancel-in-progress: false
     # Агент работает правами GitHub App, полученными через OIDC, а issue
     # публикует шаг воркфлоу с токеном раннера, поэтому токену нужен только
-    # issues: write. Коммитов и PR воркфлоу не делает, и contents и
-    # pull-requests: write, которые просило задание урока, сняты
+    # issues: write. Коммитов и PR воркфлоу не делает, поэтому contents и
+    # pull-requests: write ему не выданы
     permissions:
       id-token: write
       contents: read
