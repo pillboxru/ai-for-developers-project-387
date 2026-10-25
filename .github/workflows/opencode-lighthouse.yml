@@ -44,7 +44,7 @@ jobs:
           node-version: 24
       # Бесплатный сервис Render засыпает, и первый запрос после простоя идёт
       # до минуты. Без прогрева Lighthouse замерил бы холодный старт сервера,
-      # а не скорость страницы. Повторы укладываются в шесть минут, остальное
+      # а не скорость страницы. Повторы укладываются в семь минут, остальное
       # время job — Lighthouse и агенту
       - name: Wake up the app
         run: |
@@ -107,8 +107,11 @@ jobs:
         env:
           # Провайдер тот же, что в opencode.yml. Разбор выжимки — простая
           # задача, ей хватает Haiku. Писать можно только тело issue, из
-          # bash — только gh issue list, create и comment: GH_TOKEN раннера
-          # пишет и в репозиторий, а отчёт приходит с проверяемой страницы.
+          # bash — только чтение issue и публикация lighthouse/issue.md:
+          # GH_TOKEN раннера пишет и в репозиторий, а отчёт приходит с
+          # проверяемой страницы. --body-file стоит в конце шаблона: из
+          # повторённого флага gh берёт последний, и выложить в публичное
+          # issue другой файл, например /proc/self/environ с ключами, нельзя.
           # Субагенты не вызываются, разрешения, которые спрашивают человека,
           # запрещены.
           # GH_TOKEN нужен gh, которым агент создаёт issue: issue от токена
@@ -127,8 +130,9 @@ jobs:
                 "bash": {
                   "*": "deny",
                   "gh issue list *": "allow",
-                  "gh issue create *": "allow",
-                  "gh issue comment *": "allow"
+                  "gh issue view *": "allow",
+                  "gh issue create --label lighthouse --title * --body-file lighthouse/issue.md": "allow",
+                  "gh issue comment * --body-file lighthouse/issue.md": "allow"
                 },
                 "task": "deny",
                 "doom_loop": "deny",
@@ -184,11 +188,13 @@ jobs:
             исключена из git), в начале — оценки категорий и метрики, в
             конце — ссылка на прогон выше.
             - Открытое issue с меткой lighthouse уже есть
-              (gh issue list --label lighthouse --state open): добавь в него
+              (gh issue list --label lighthouse --state open): прочитай
+              прошлые итоги (gh issue view <номер> --comments), добавь
               комментарий с итогами этого прогона и напиши, что изменилось с
               прошлого раза (gh issue comment <номер> --body-file
               lighthouse/issue.md).
             - Нет: создай его (gh issue create --label lighthouse --title
               "Lighthouse: скорость и качество страницы" --body-file
               lighthouse/issue.md).
-            Другие issue не создавай и не меняй.
+            Команды gh пиши ровно в этом виде, флаги в том же порядке:
+            другие команды запрещены. Другие issue не создавай и не меняй.
