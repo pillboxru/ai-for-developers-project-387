@@ -382,6 +382,12 @@ describe('отмена бронирования', () => {
 describe('автообновление списка (26.2 отменён)', () => {
   const pollInterval = 30_000
 
+  // focusManager — глобальный синглтон: без сброса принудительный фокус
+  // утекает в следующие тесты файла
+  afterEach(() => {
+    focusManager.setFocused(undefined)
+  })
+
   // setTimeout не подменяем: на нём стоят MSW и ожидания findBy*
   function useFakeClock() {
     vi.useFakeTimers({
