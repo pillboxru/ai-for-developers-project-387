@@ -83,6 +83,8 @@ jobs:
               && 'console-anthropic/claude-opus-5-5'
               || 'console-anthropic/claude-sonnet-5-5'
             }}
+          # Как в opencode.yml: сессию по ссылке не публикуем
+          share: false
           prompt: |
             Сделай ревью этого pull request. Код не меняй и тесты не запускай:
             их гоняет CI. Прочитай AGENTS.md, diff и, где нужно, затронутые
