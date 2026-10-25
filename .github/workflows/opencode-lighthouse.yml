@@ -1,0 +1,179 @@
+name: opencode-lighthouse
+
+on:
+  # Cron считается в UTC: 03:00 UTC — это 06:00 по Москве, к утру отчёт готов
+  schedule:
+    - cron: '0 3 * * *'
+  # Без ручного запуска правку воркфлоу можно проверить, только дождавшись ночи
+  workflow_dispatch:
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Агент работает правами GitHub App, полученными через OIDC, а issue
+    # создаёт через gh с токеном раннера, поэтому токену нужен issues: write.
+    # contents и pull-requests: write — права, с которыми action по расписанию
+    # сам открывает PR, если агент поменял файлы. Здесь агенту можно писать
+    # только тело issue, и итог прогона — только issue
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      # Адрес держим переменной репозитория, а не в воркфлоу: при переезде
+      # приложения меняется только она
+      APP_URL: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Отчёт лежит в рабочей копии, чтобы агент мог его прочитать. Из git его
+      # исключаем: иначе action увидит изменения и откроет с ними PR
+      - run: |
+          mkdir lighthouse
+          echo 'lighthouse/' >> .git/info/exclude
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # Бесплатный сервис Render засыпает, и первый запрос после простоя идёт
+      # до минуты. Без прогрева Lighthouse замерил бы холодный старт сервера,
+      # а не скорость страницы
+      - name: Wake up the app
+        run: curl -fsS --retry 10 --retry-delay 10 --retry-all-errors --max-time 90 -o /dev/null "$APP_URL"
+      - name: Run Lighthouse
+        run: >-
+          npx --yes lighthouse@13.5.0 "$APP_URL"
+          --quiet
+          --output=json --output=html
+          --output-path=lighthouse/report
+          --chrome-flags="--headless=new --no-sandbox"
+      # Полный JSON весит сотни килобайт служебных полей, на нём Haiku теряет
+      # главное. Агенту отдаём выжимку в несколько килобайт: оценки, метрики и
+      # проверки с оценкой ниже 0.9. Полный отчёт остаётся в артефакте
+      - name: Summarize the report
+        run: |
+          jq '
+            . as $report
+            | {
+                url: .finalDisplayedUrl,
+                fetchTime,
+                lighthouseVersion,
+                formFactor: .configSettings.formFactor,
+                runWarnings,
+                runtimeError,
+                categories: (.categories | map_values(if .score == null then null else .score * 100 | round end)),
+                metrics: (
+                  ["first-contentful-paint", "largest-contentful-paint", "total-blocking-time", "cumulative-layout-shift", "speed-index"]
+                  | map({ key: ., value: $report.audits[.].displayValue })
+                  | from_entries
+                ),
+                failed: (
+                  [ .categories[] as $category
+                    | $category.auditRefs[]
+                    | $report.audits[.id]
+                    | select(.score != null and .score < 0.9)
+                    | { id, category: $category.id, title, score, displayValue, savings: .metricSavings }
+                  ]
+                  | group_by(.id)
+                  | map(.[0] + { categories: map(.category) } | del(.category))
+                  | sort_by(.score)
+                )
+              }
+          ' lighthouse/report.report.json > lighthouse/summary.json
+          cat lighthouse/summary.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lighthouse-report
+          path: |
+            lighthouse/report.report.html
+            lighthouse/report.report.json
+            lighthouse/summary.json
+      # Метку issue с итогами создаём заранее: gh issue create с меткой,
+      # которой нет, падает. --force делает шаг повторяемым
+      - run: gh label create lighthouse --color FBCA04 --description 'Ночная проверка Lighthouse' --force
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Run opencode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Провайдер тот же, что в opencode.yml. Разбор выжимки — простая
+          # задача, ей хватает Haiku. Писать можно только тело issue,
+          # субагенты не вызываются, разрешения, которые спрашивают человека,
+          # запрещены.
+          # GH_TOKEN нужен gh, которым агент создаёт issue: issue от токена
+          # раннера не запускает opencode-triage, и ночной отчёт не уходит
+          # на оценку
+          GH_TOKEN: ${{ github.token }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_CONFIG_CONTENT: |
+            {
+              "small_model": "console-anthropic/claude-haiku-5-5",
+              "permission": {
+                "edit": {
+                  "*": "deny",
+                  "*lighthouse/issue.md": "allow"
+                },
+                "task": "deny",
+                "doom_loop": "deny",
+                "external_directory": "deny",
+                "read": {
+                  "*": "allow",
+                  "*.env": "deny",
+                  "*.env.*": "deny",
+                  "*.env.example": "allow"
+                }
+              },
+              "provider": {
+                "console-anthropic": {
+                  "npm": "@ai-sdk/anthropic",
+                  "options": {
+                    "baseURL": "https://opencode.ai/inference/custom/conn_01M5SMZ1CFG6C401PF3F0S7A3B",
+                    "apiKey": "{env:OPENCODE_API_KEY}"
+                  },
+                  "models": { "claude-haiku-5-5": {} }
+                }
+              }
+            }
+        with:
+          model: console-anthropic/claude-haiku-5-5
+          # Ответить агенту некуда: треда нет, а лог прогона к утру никто не
+          # читает. Поэтому итог — issue с меткой lighthouse
+          prompt: |
+            Разбери ночную проверку Lighthouse опубликованного приложения и
+            сведи итоги в issue. Код не меняй и субагентов не вызывай:
+            записать можно только lighthouse/issue.md.
+
+            Выжимка отчёта — lighthouse/summary.json: оценки категорий от 0
+            до 100, метрики и проверки с оценкой ниже 0.9 (score от 0 до 1,
+            savings — ожидаемая экономия в мс). Полный отчёт —
+            lighthouse/report.report.json, открывай его, только если
+            выжимки не хватает. Отчёт со всеми файлами сохранён артефактом
+            lighthouse-report прогона
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Если в выжимке есть runtimeError или runWarnings, сначала опиши
+            их: это сбой проверки, а не приложения.
+
+            По каждой находке напиши по-русски, коротко:
+            - что не так и насколько: оценка, displayValue, savings;
+            - где искать причину в репозитории (frontend/, backend/src/app.ts,
+              Dockerfile) и что поправить. Не уверен в причине — так и
+              напиши, не выдумывай;
+            - сначала находки с наибольшей экономией и влиянием на оценку
+              performance.
+            Цифры бери только из отчёта.
+
+            Оформи итоги через gh. Тело запиши в lighthouse/issue.md (папка
+            исключена из git), в начале — оценки категорий и метрики, в
+            конце — ссылка на прогон выше.
+            - Открытое issue с меткой lighthouse уже есть
+              (gh issue list --label lighthouse --state open): добавь в него
+              комментарий с итогами этого прогона и напиши, что изменилось с
+              прошлого раза (gh issue comment <номер> --body-file
+              lighthouse/issue.md).
+            - Нет: создай его (gh issue create --label lighthouse --title
+              "Lighthouse: скорость и качество страницы" --body-file
+              lighthouse/issue.md).
+            Другие issue не создавай и не меняй.

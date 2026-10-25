@@ -95,11 +95,13 @@ Render собирает образ из `Dockerfile` и передаёт пор�
 
 - **Автотриаж** (`.github/workflows/opencode-triage.yml`): новое issue от участника разбирает Haiku 5.5. Он пишет, что затронуто, чего не хватает и ответственная ли задача, а ответственной ставит метку `critical`.
 - **Авторевью** (`.github/workflows/opencode-review.yml`): PR участника, кроме черновиков, PR ботов и PR из форков, ревьюит Sonnet 5.5, а PR с меткой `critical` — Opus 5.5. Ревью запускается при открытии и переоткрытии PR, на новые коммиты, при выходе из черновика и на метку `critical`. Замечания приходят комментарием, код ревьюер не меняет.
+- **Ночная проверка Lighthouse** (`.github/workflows/opencode-lighthouse.yml`): в 03:00 UTC (06:00 по Москве) Lighthouse проверяет опубликованное приложение, а Haiku 5.5 разбирает выжимку отчёта и пишет итоги в issue с меткой `lighthouse`: создаёт его или дополняет открытое комментарием. Полный отчёт сохраняется артефактом `lighthouse-report` прогона. Вручную проверка запускается на вкладке Actions (Run workflow).
 
 ### Настройка
 
 - На репозиторий установлен GitHub App [opencode-agent](https://github.com/apps/opencode-agent).
 - В секрете `OPENCODE_API_KEY` лежит ключ сервисного аккаунта рабочего пространства OpenCode Console. Модели `console-anthropic/*` идут через шлюз Console на подключённый аккаунт Anthropic: токены оплачивает Anthropic, а Console учитывает расход в бюджете сервисного аккаунта. Адрес подключения задан в `OPENCODE_CONFIG_CONTENT` в воркфлоу.
+- В переменной репозитория `APP_URL` (Settings → Secrets and variables → Actions → Variables) лежит адрес приложения для проверки Lighthouse.
 - Расходы ограничивают бюджет сервисного аккаунта в Console и Spend limits в Claude Console.
 
 ---
