@@ -13,7 +13,8 @@ jobs:
     # Комментарии ботов пропускаем, чтобы агент не запускал сам себя. Звать
     # агента могут только участники: репозиторий публичный, и минуты Actions
     # тратились бы на любой /oc от прохожего. /opus вызывает того же агента
-    # на Opus
+    # на Opus. Комментарий к строке PR из форка не принимаем: checkout берёт
+    # код PR, и npm ci выполнил бы его скрипты в job с id-token
     if: |
       (startsWith(github.event.comment.body, '/oc') ||
        contains(github.event.comment.body, ' /oc') ||
@@ -22,7 +23,9 @@ jobs:
        startsWith(github.event.comment.body, '/opus') ||
        contains(github.event.comment.body, ' /opus')) &&
       github.event.comment.user.type != 'Bot' &&
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+      (github.event_name != 'pull_request_review_comment' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     # Агент, который застрял, не должен шесть часов жечь минуты Actions.
     # Запас на make check с e2e после правки
