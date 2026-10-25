@@ -35,8 +35,10 @@ export function createQueryClient() {
       queries: {
         retry: (failureCount, error) =>
           failureCount < 1 && isTransientError(error),
-        // Данные меняет только тот, кто на них смотрит, и экран перечитывает
-        // их сам после действия: лишние запросы по фокусу и сети не нужны
+        // Данные меняет в основном тот, кто на них смотрит, и экран перечитывает
+        // их сам после действия: лишние запросы по фокусу и сети не нужны.
+        // Исключение — список бронирований владельца: его пополняют гости,
+        // он опрашивается сам (watchedBookingsQuery)
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
       },

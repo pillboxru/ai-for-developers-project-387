@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -14,6 +14,7 @@ import type {
   UpdateSchedule,
   WeeklySchedule,
 } from '../../api/generated/types.gen.ts'
+import { createQueryClient } from '../../api/queryClient.ts'
 import { renderApp } from '../../test/renderApp.tsx'
 import { server } from '../../test/server.ts'
 
@@ -492,6 +493,36 @@ describe('редактор расписания', () => {
         screen.queryByText('Не удалось сохранить. Попробуйте ещё раз.'),
       ).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('список бронирований на странице расписания', () => {
+  // Опрос нужен только экрану бронирований: расписание и общий
+  // bookingsQuery() список не перечитывают
+  it('не опрашивается по интервалу', async () => {
+    let listRequests = 0
+    server.use(
+      handleGetOwner({
+        body: { name: 'Анна Смирнова', timeZone: 'Europe/Moscow' },
+      }),
+      handleGetSchedule({ body: defaultSchedule }),
+      handleListBookings(() => {
+        listRequests += 1
+        return HttpResponse.json([])
+      }),
+    )
+    // setTimeout не подменяем: на нём стоят MSW и ожидания findBy*
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'Date'],
+      now: today,
+    })
+    renderApp('/admin/schedule', { queryClient: createQueryClient() })
+    await screen.findByRole('grid', { name: 'Неделя' })
+    await waitFor(() => expect(listRequests).toBe(1))
+
+    await act(() => vi.advanceTimersByTimeAsync(30_000 * 3))
+
+    expect(listRequests).toBe(1)
   })
 })
 
