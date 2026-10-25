@@ -20,13 +20,16 @@ jobs:
     concurrency:
       group: opencode-lighthouse
       cancel-in-progress: false
-    # Агент работает правами GitHub App, полученными через OIDC, а issue
-    # публикует шаг воркфлоу с токеном раннера, поэтому токену нужен только
-    # issues: write. Коммитов и PR воркфлоу не делает, поэтому contents и
-    # pull-requests: write ему не выданы
+    # Права на запись — требование проекта к задаче по расписанию: она создаёт
+    # задачи и PR. Сейчас PR она не открывает: агенту можно писать только
+    # lighthouse/issue.md, токен раннера ему не передаётся, он работает
+    # правами GitHub App через OIDC. Токен раннера получают только шаги с gh
+    # (GH_TOKEN), агенту запрещены bash и webfetch, поэтому новых путей
+    # утечки эти права не открывают
     permissions:
       id-token: write
-      contents: read
+      contents: write
+      pull-requests: write
       issues: write
     env:
       # Адрес держим переменной репозитория, а не в воркфлоу: при переезде
