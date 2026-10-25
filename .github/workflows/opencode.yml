@@ -12,12 +12,15 @@ jobs:
     # срабатывал бы на ссылки https://opencode.ai/... в ответах самого агента.
     # Комментарии ботов пропускаем, чтобы агент не запускал сам себя. Звать
     # агента могут только участники: репозиторий публичный, и минуты Actions
-    # тратились бы на любой /oc от прохожего
+    # тратились бы на любой /oc от прохожего. /opus вызывает того же агента
+    # на Opus
     if: |
       (startsWith(github.event.comment.body, '/oc') ||
        contains(github.event.comment.body, ' /oc') ||
        startsWith(github.event.comment.body, '/opencode') ||
-       contains(github.event.comment.body, ' /opencode')) &&
+       contains(github.event.comment.body, ' /opencode') ||
+       startsWith(github.event.comment.body, '/opus') ||
+       contains(github.event.comment.body, ' /opus')) &&
       github.event.comment.user.type != 'Bot' &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
@@ -53,9 +56,25 @@ jobs:
                     "baseURL": "https://opencode.ai/inference/custom/conn_01M5SMZ1CFG6C401PF3F0S7A3B",
                     "apiKey": "{env:OPENCODE_API_KEY}"
                   },
-                  "models": { "claude-sonnet-5-5": {}, "claude-haiku-5-5": {} }
+                  "models": {
+                    "claude-opus-5-5": {},
+                    "claude-sonnet-5-5": {},
+                    "claude-haiku-5-5": {}
+                  }
                 }
               }
             }
         with:
-          model: console-anthropic/claude-sonnet-5-5
+          # Ответственную задачу ведёт Opus: тред с меткой critical (у
+          # комментария к строке PR метки лежат в pull_request) или вызов
+          # командой /opus. Остальное делает Sonnet
+          model: >-
+            ${{
+              (contains(github.event.issue.labels.*.name, 'critical') ||
+               contains(github.event.pull_request.labels.*.name, 'critical') ||
+               startsWith(github.event.comment.body, '/opus') ||
+               contains(github.event.comment.body, ' /opus'))
+              && 'console-anthropic/claude-opus-5-5'
+              || 'console-anthropic/claude-sonnet-5-5'
+            }}
+          mentions: /oc,/opencode,/opus
