@@ -225,9 +225,18 @@ jobs:
             echo '::error::Агент не подготовил lighthouse/issue.md'
             exit 1
           fi
-          if grep -qF "$OPENCODE_API_KEY" lighthouse/issue.md ||
-            grep -qiE 'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|x-access-token|eC1hY2Nlc3MtdG9rZW46|extraheader|authorization:' lighthouse/issue.md; then
-            echo '::error::В lighthouse/issue.md похоже на секрет, отчёт не опубликован'
+          # С пустым ключом grep -F совпал бы с любой строкой
+          : "${OPENCODE_API_KEY:?Не задан секрет OPENCODE_API_KEY}"
+          # grep возвращает 0, если нашёл, 1, если нет, и 2 при ошибке.
+          # Публикуем только при 1: ошибка проверки не должна пропускать отчёт
+          status=0
+          grep -qF -e "$OPENCODE_API_KEY" lighthouse/issue.md || status=$?
+          if [ "$status" -eq 1 ]; then
+            status=0
+            grep -qiE 'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|x-access-token|eC1hY2Nlc3MtdG9rZW46|extraheader|authorization:' lighthouse/issue.md || status=$?
+          fi
+          if [ "$status" -ne 1 ]; then
+            echo '::error::В lighthouse/issue.md похоже на секрет или проверка не удалась, отчёт не опубликован'
             exit 1
           fi
           if [ -n "$ISSUE" ]; then
