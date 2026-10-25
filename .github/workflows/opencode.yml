@@ -24,6 +24,8 @@ jobs:
       github.event.comment.user.type != 'Bot' &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
+    # Агент, который застрял, не должен шесть часов жечь минуты Actions
+    timeout-minutes: 30
     # Токену раннера только чтение: пишет агент правами GitHub App, которые
     # получает через OIDC
     permissions:
@@ -46,11 +48,23 @@ jobs:
           # ключ включает и модели opencode/*, оплачиваемые с баланса Console:
           # их не выбирают ни model, ни small_model. Субагент analyst на Opus
           # берёт у основного агента глубокий разбор, правила передачи — в
-          # AGENTS.md
+          # AGENTS.md. Разрешения, которые по умолчанию спрашивают человека,
+          # здесь запрещены: в Actions ответить некому, и прогон висел бы до
+          # timeout-minutes
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           OPENCODE_CONFIG_CONTENT: |
             {
               "small_model": "console-anthropic/claude-haiku-5-5",
+              "permission": {
+                "doom_loop": "deny",
+                "external_directory": "deny",
+                "read": {
+                  "*": "allow",
+                  "*.env": "deny",
+                  "*.env.*": "deny",
+                  "*.env.example": "allow"
+                }
+              },
               "agent": {
                 "analyst": {
                   "mode": "subagent",
