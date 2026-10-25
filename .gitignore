@@ -1,0 +1,35 @@
+# Dependencies and build output
+node_modules
+dist
+coverage
+
+# Отчёты Playwright
+playwright-report
+test-results
+*.tsbuildinfo
+
+# Генерируется из контракта (make generate)
+frontend/src/api/generated
+backend/src/generated
+
+# Environment
+.env
+.env.*
+!.env.example
+*.local
+# Конфиг MCP с ключом Render, в репозитории только шаблон .mcp.json.example
+.mcp.json
+
+# Logs
+*.log
+
+# Editor and OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+.claude
+.agents
+.grok
+.hermes
+skills

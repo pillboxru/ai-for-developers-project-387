@@ -1,0 +1,28 @@
+{
+  "name": "call-calendar",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "contract",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "generate": "npm run generate -w contract",
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium",
+    "lint": "oxlint && prettier --check .",
+    "lint:fix": "oxlint --fix && prettier --write ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@typespec/prettier-plugin-typespec": "^1.17.0",
+    "concurrently": "^10.0.6",
+    "oxlint": "^1.89.0",
+    "prettier": "^3.9.10"
+  }
+}

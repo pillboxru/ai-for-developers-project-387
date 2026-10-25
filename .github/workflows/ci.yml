@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: make e2e-install
+      # Та же команда, что локально: линтер, тесты, сборка и e2e
+      - run: make check
+      - name: Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: make docker-build
+      - name: Smoke test
+        run: |
+          docker run -d --name app -p 3000:3000 call-calendar
+          # Пока Node стартует, docker-proxy сбрасывает соединение, поэтому повторяем при любой ошибке
+          curl --fail --retry 15 --retry-all-errors --retry-delay 1 http://localhost:3000/api/health
+          curl --fail --silent http://localhost:3000/ | grep -q '<div id="root">'
+      - name: Container logs
+        if: always()
+        run: docker logs app || true
