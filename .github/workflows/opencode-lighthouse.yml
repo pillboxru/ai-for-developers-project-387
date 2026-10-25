@@ -130,7 +130,10 @@ jobs:
           # bash и webfetch запрещены, токена раннера у него нет. Шаблоны
           # для gh не спасали: под --title * подходит и "$OPENCODE_API_KEY",
           # который раскроет shell, а заголовок issue публичный. Субагенты не
-          # вызываются, разрешения, которые спрашивают человека, запрещены
+          # вызываются, разрешения, которые спрашивают человека, запрещены.
+          # Чтение .git запрещено: action кладёт токен GitHub App в
+          # .git/config (extraheader), и агент мог бы переписать его в
+          # issue.md. grep и glob пропускают .git сами
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           OPENCODE_CONFIG_CONTENT: |
             {
@@ -149,7 +152,9 @@ jobs:
                   "*": "allow",
                   "*.env": "deny",
                   "*.env.*": "deny",
-                  "*.env.example": "allow"
+                  "*.env.example": "allow",
+                  ".git/*": "deny",
+                  "*/.git/*": "deny"
                 }
               },
               "provider": {
