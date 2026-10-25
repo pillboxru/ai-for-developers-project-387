@@ -209,14 +209,25 @@ jobs:
             находки появились или ушли. Файла нет — это первый отчёт.
       # Публикует шаг, а не агент: токен раннера остаётся вне его досягаемости.
       # Issue от токена раннера не запускает opencode-triage, и ночной отчёт
-      # не уходит на оценку. Пустой файл — сбой агента, прогон падает
+      # не уходит на оценку. Пустой файл — сбой агента, прогон падает.
+      # Issue публичное, поэтому перед публикацией ищем ключ Console и следы
+      # токенов GitHub: префиксы токенов, x-access-token и его base64 из
+      # extraheader в .git/config. Это вторая линия после запретов агенту:
+      # их поведение зависит от версии action, а она @latest. Найденное в
+      # лог не печатаем
       - name: Publish the report
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ steps.previous.outputs.number }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: |
           if [ ! -s lighthouse/issue.md ]; then
             echo '::error::Агент не подготовил lighthouse/issue.md'
+            exit 1
+          fi
+          if grep -qF "$OPENCODE_API_KEY" lighthouse/issue.md ||
+            grep -qiE 'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|x-access-token|eC1hY2Nlc3MtdG9rZW46|extraheader|authorization:' lighthouse/issue.md; then
+            echo '::error::В lighthouse/issue.md похоже на секрет, отчёт не опубликован'
             exit 1
           fi
           if [ -n "$ISSUE" ]; then
