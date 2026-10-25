@@ -1,0 +1,109 @@
+name: opencode-review
+
+on:
+  pull_request:
+    # labeled — чтобы метка critical, поставленная после открытия, сразу
+    # запускала ревью на Opus
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+
+jobs:
+  review:
+    # Ревьюим код людей из этого репозитория. PR от ботов (release-please,
+    # агент) и события от ботов пропускаем: action проверяет права записи у
+    # того, кто запустил событие, а у бота их нет. PR агента проверяет
+    # человек командой /oc в обсуждении. По той же причине push агента в PR
+    # человека (после /oc) ревью не запускает. Из меток ревью запускает
+    # только critical
+    if: |
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !endsWith(github.event.pull_request.user.login, '[bot]') &&
+      !endsWith(github.actor, '[bot]') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'critical')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Новый push в тот же PR отменяет ревью, которое ещё не закончилось.
+    # На уровне job, а не воркфлоу: пропущенный прогон (например, на другую
+    # метку) иначе отменял бы идущее ревью
+    concurrency:
+      group: opencode-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    # Замечания оставляет агент правами GitHub App, токену раннера чтение
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run opencode review
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Провайдер тот же, что в opencode.yml. Ревьюер код не правит: его
+          # правки action запушил бы в ветку PR. Субагента не зовёт, а
+          # разрешения, которые спрашивают человека, запрещены
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_CONFIG_CONTENT: |
+            {
+              "small_model": "console-anthropic/claude-haiku-5-5",
+              "permission": {
+                "edit": "deny",
+                "task": "deny",
+                "doom_loop": "deny",
+                "external_directory": "deny",
+                "read": {
+                  "*": "allow",
+                  "*.env": "deny",
+                  "*.env.*": "deny",
+                  "*.env.example": "allow"
+                }
+              },
+              "provider": {
+                "console-anthropic": {
+                  "npm": "@ai-sdk/anthropic",
+                  "options": {
+                    "baseURL": "https://opencode.ai/inference/custom/conn_01M5SMZ1CFG6C401PF3F0S7A3B",
+                    "apiKey": "{env:OPENCODE_API_KEY}"
+                  },
+                  "models": {
+                    "claude-opus-5-5": {},
+                    "claude-sonnet-5-5": {},
+                    "claude-haiku-5-5": {}
+                  }
+                }
+              }
+            }
+        with:
+          # Как в opencode.yml: PR с меткой critical ревьюит Opus
+          model: >-
+            ${{
+              contains(github.event.pull_request.labels.*.name, 'critical')
+              && 'console-anthropic/claude-opus-5-5'
+              || 'console-anthropic/claude-sonnet-5-5'
+            }}
+          prompt: |
+            Сделай ревью этого pull request. Код не меняй и тесты не запускай:
+            их гоняет CI. Прочитай AGENTS.md, diff и, где нужно, затронутые
+            файлы целиком.
+
+            Проверь:
+            - ошибки и регрессии поведения, граничные случаи: часовые пояса,
+              полночь владельца, отменённые и идущие бронирования;
+            - типы: нет any и приведений as, чтобы заглушить ошибку; новые
+              сущности не дублируют существующие типы и helper-ы;
+            - архитектуру: маршруты → сервисы → репозитории, запросы фронтенда
+              только через frontend/src/api, новый эндпоинт начинается с
+              contract/main.tsp;
+            - тесты: у бага есть тест, который без правки падает; изменённое
+              поведение покрыто;
+            - комментарии объясняют, почему код такой, и не устарели;
+            - в diff только то, что относится к задаче;
+            - коммиты по Conventional Commits, у закрывающего тикет — номер в
+              конце заголовка.
+
+            Ответь по-русски списком замечаний от важных к мелким, у каждого
+            файл и строка. Отметь, что исправить обязательно, а что на
+            усмотрение автора. Diff не пересказывай. Если замечаний нет, так и
+            напиши одной строкой.
