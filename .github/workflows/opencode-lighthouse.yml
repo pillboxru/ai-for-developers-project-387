@@ -11,11 +11,16 @@ jobs:
   lighthouse:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Ручной запуск рядом с ночным увидел бы, что открытого issue нет, и оба
+    # прогона создали бы по issue
+    concurrency:
+      group: opencode-lighthouse
+      cancel-in-progress: false
     # Агент работает правами GitHub App, полученными через OIDC, а issue
     # создаёт через gh с токеном раннера, поэтому токену нужен issues: write.
-    # contents и pull-requests: write — права, с которыми action по расписанию
-    # сам открывает PR, если агент поменял файлы. Здесь агенту можно писать
-    # только тело issue, и итог прогона — только issue
+    # contents и pull-requests: write этому воркфлоу не нужны: PR action
+    # открывает правами App. Их требует задание урока, поэтому записать через
+    # токен в репозиторий агенту не даёт allowlist bash ниже
     permissions:
       id-token: write
       contents: write
@@ -39,9 +44,12 @@ jobs:
           node-version: 24
       # Бесплатный сервис Render засыпает, и первый запрос после простоя идёт
       # до минуты. Без прогрева Lighthouse замерил бы холодный старт сервера,
-      # а не скорость страницы
+      # а не скорость страницы. Повторы укладываются в шесть минут, остальное
+      # время job — Lighthouse и агенту
       - name: Wake up the app
-        run: curl -fsS --retry 10 --retry-delay 10 --retry-all-errors --max-time 90 -o /dev/null "$APP_URL"
+        run: |
+          : "${APP_URL:?Не задана переменная репозитория APP_URL}"
+          curl -fsS --retry 5 --retry-delay 10 --retry-all-errors --max-time 60 -o /dev/null "$APP_URL"
       - name: Run Lighthouse
         run: >-
           npx --yes lighthouse@13.5.0 "$APP_URL"
@@ -62,7 +70,6 @@ jobs:
                 lighthouseVersion,
                 formFactor: .configSettings.formFactor,
                 runWarnings,
-                runtimeError,
                 categories: (.categories | map_values(if .score == null then null else .score * 100 | round end)),
                 metrics: (
                   ["first-contentful-paint", "largest-contentful-paint", "total-blocking-time", "cumulative-layout-shift", "speed-index"]
@@ -99,8 +106,10 @@ jobs:
         uses: anomalyco/opencode/github@latest
         env:
           # Провайдер тот же, что в opencode.yml. Разбор выжимки — простая
-          # задача, ей хватает Haiku. Писать можно только тело issue,
-          # субагенты не вызываются, разрешения, которые спрашивают человека,
+          # задача, ей хватает Haiku. Писать можно только тело issue, из
+          # bash — только gh issue list, create и comment: GH_TOKEN раннера
+          # пишет и в репозиторий, а отчёт приходит с проверяемой страницы.
+          # Субагенты не вызываются, разрешения, которые спрашивают человека,
           # запрещены.
           # GH_TOKEN нужен gh, которым агент создаёт issue: issue от токена
           # раннера не запускает opencode-triage, и ночной отчёт не уходит
@@ -114,6 +123,12 @@ jobs:
                 "edit": {
                   "*": "deny",
                   "*lighthouse/issue.md": "allow"
+                },
+                "bash": {
+                  "*": "deny",
+                  "gh issue list *": "allow",
+                  "gh issue create *": "allow",
+                  "gh issue comment *": "allow"
                 },
                 "task": "deny",
                 "doom_loop": "deny",
@@ -153,8 +168,8 @@ jobs:
             lighthouse-report прогона
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-            Если в выжимке есть runtimeError или runWarnings, сначала опиши
-            их: это сбой проверки, а не приложения.
+            Если runWarnings в выжимке не пуст, сначала опиши предупреждения:
+            это сбой проверки, а не приложения.
 
             По каждой находке напиши по-русски, коротко:
             - что не так и насколько: оценка, displayValue, savings;
