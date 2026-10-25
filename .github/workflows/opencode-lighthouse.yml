@@ -17,10 +17,10 @@ jobs:
       group: opencode-lighthouse
       cancel-in-progress: false
     # Агент работает правами GitHub App, полученными через OIDC, а issue
-    # создаёт через gh с токеном раннера, поэтому токену нужен issues: write.
-    # contents и pull-requests: write этому воркфлоу не нужны: PR action
-    # открывает правами App. Их требует задание урока, поэтому записать через
-    # токен в репозиторий агенту не даёт allowlist bash ниже
+    # публикует шаг воркфлоу с токеном раннера, поэтому токену нужен
+    # issues: write. contents и pull-requests: write этому воркфлоу не нужны:
+    # PR action открывает правами App. Их требует задание урока, поэтому
+    # токен раннера агенту не передаётся
     permissions:
       id-token: write
       contents: write
@@ -102,22 +102,35 @@ jobs:
       - run: gh label create lighthouse --color FBCA04 --description 'Ночная проверка Lighthouse' --force
         env:
           GH_TOKEN: ${{ github.token }}
+      # Прошлые итоги для сравнения агент получает файлом, а не читает issue
+      # сам: в комментариях публичного issue пишет кто угодно, а здесь берём
+      # только тексты, которые опубликовал этот воркфлоу
+      - name: Find the previous report
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          number=$(gh api "repos/$GITHUB_REPOSITORY/issues?labels=lighthouse&state=open" \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and .pull_request == null)][0].number // empty')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          if [ -n "$number" ]; then
+            comment=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]") | .id' | tail -n 1)
+            if [ -n "$comment" ]; then
+              gh api "repos/$GITHUB_REPOSITORY/issues/comments/$comment" --jq .body > lighthouse/previous.md
+            else
+              gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body > lighthouse/previous.md
+            fi
+          fi
       - name: Run opencode
         uses: anomalyco/opencode/github@latest
         env:
           # Провайдер тот же, что в opencode.yml. Разбор выжимки — простая
-          # задача, ей хватает Haiku. Писать можно только тело issue, из
-          # bash — только чтение issue и публикация lighthouse/issue.md:
-          # GH_TOKEN раннера пишет и в репозиторий, а отчёт приходит с
-          # проверяемой страницы. --body-file стоит в конце шаблона: из
-          # повторённого флага gh берёт последний, и выложить в публичное
-          # issue другой файл, например /proc/self/environ с ключами, нельзя.
-          # Субагенты не вызываются, разрешения, которые спрашивают человека,
-          # запрещены.
-          # GH_TOKEN нужен gh, которым агент создаёт issue: issue от токена
-          # раннера не запускает opencode-triage, и ночной отчёт не уходит
-          # на оценку
-          GH_TOKEN: ${{ github.token }}
+          # задача, ей хватает Haiku. Агент только пишет lighthouse/issue.md:
+          # bash и webfetch запрещены, токена раннера у него нет. Шаблоны
+          # для gh не спасали: под --title * подходит и "$OPENCODE_API_KEY",
+          # который раскроет shell, а заголовок issue публичный. Субагенты не
+          # вызываются, разрешения, которые спрашивают человека, запрещены
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           OPENCODE_CONFIG_CONTENT: |
             {
@@ -127,13 +140,8 @@ jobs:
                   "*": "deny",
                   "*lighthouse/issue.md": "allow"
                 },
-                "bash": {
-                  "*": "deny",
-                  "gh issue list *": "allow",
-                  "gh issue view *": "allow",
-                  "gh issue create --label lighthouse --title * --body-file lighthouse/issue.md": "allow",
-                  "gh issue comment * --body-file lighthouse/issue.md": "allow"
-                },
+                "bash": "deny",
+                "webfetch": "deny",
                 "task": "deny",
                 "doom_loop": "deny",
                 "external_directory": "deny",
@@ -161,8 +169,10 @@ jobs:
           # читает. Поэтому итог — issue с меткой lighthouse
           prompt: |
             Разбери ночную проверку Lighthouse опубликованного приложения и
-            сведи итоги в issue. Код не меняй и субагентов не вызывай:
-            записать можно только lighthouse/issue.md.
+            создай issue с итогами: запиши его текст в lighthouse/issue.md,
+            а опубликует его шаг воркфлоу после тебя. Код не меняй, другие
+            файлы не пиши, субагентов не вызывай. Команды shell и gh тебе
+            недоступны, они не нужны.
 
             Выжимка отчёта — lighthouse/summary.json: оценки категорий от 0
             до 100, метрики и проверки с оценкой ниже 0.9 (score от 0 до 1,
@@ -184,17 +194,28 @@ jobs:
               performance.
             Цифры бери только из отчёта.
 
-            Оформи итоги через gh. Тело запиши в lighthouse/issue.md (папка
-            исключена из git), в начале — оценки категорий и метрики, в
-            конце — ссылка на прогон выше.
-            - Открытое issue с меткой lighthouse уже есть
-              (gh issue list --label lighthouse --state open): прочитай
-              прошлые итоги (gh issue view <номер> --comments), добавь
-              комментарий с итогами этого прогона и напиши, что изменилось с
-              прошлого раза (gh issue comment <номер> --body-file
-              lighthouse/issue.md).
-            - Нет: создай его (gh issue create --label lighthouse --title
-              "Lighthouse: скорость и качество страницы" --body-file
-              lighthouse/issue.md).
-            Команды gh пиши ровно в этом виде, флаги в том же порядке:
-            другие команды запрещены. Другие issue не создавай и не меняй.
+            В lighthouse/issue.md в начале — оценки категорий и метрики, в
+            конце — ссылка на прогон выше. Заголовок не пиши, его задаёт
+            воркфлоу.
+
+            Если есть lighthouse/previous.md, это итоги прошлого прогона:
+            воркфлоу добавит твой текст комментарием к тому же issue.
+            Сравни с ними и напиши, что улучшилось, что ухудшилось и какие
+            находки появились или ушли. Файла нет — это первый отчёт.
+      # Публикует шаг, а не агент: токен раннера остаётся вне его досягаемости.
+      # Issue от токена раннера не запускает opencode-triage, и ночной отчёт
+      # не уходит на оценку. Пустой файл — сбой агента, прогон падает
+      - name: Publish the report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.previous.outputs.number }}
+        run: |
+          if [ ! -s lighthouse/issue.md ]; then
+            echo '::error::Агент не подготовил lighthouse/issue.md'
+            exit 1
+          fi
+          if [ -n "$ISSUE" ]; then
+            gh issue comment "$ISSUE" --body-file lighthouse/issue.md
+          else
+            gh issue create --label lighthouse --title 'Lighthouse: скорость и качество страницы' --body-file lighthouse/issue.md
+          fi
