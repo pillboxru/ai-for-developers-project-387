@@ -29,11 +29,12 @@ jobs:
       group: opencode-review-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     # Ревью идёт токеном раннера (use_github_token), а не правами GitHub App
-    # через OIDC, как в учебных требованиях. Комментарий к PR GitHub пишет
-    # через API issues, поэтому запись нужна только issues
+    # через OIDC, как в учебных требованиях. Комментарий к PR идёт через API
+    # issues, но на PR GitHub требует ещё и pull-requests: write: с одним
+    # issues: write и реакция, и комментарий получают 403
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: write
     steps:
       - uses: actions/checkout@v7
