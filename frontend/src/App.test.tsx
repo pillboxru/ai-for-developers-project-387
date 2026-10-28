@@ -75,13 +75,14 @@ describe('шапка гостя', () => {
 describe('неизвестный адрес', () => {
   it.each(['/unknown', '/book/abc/extra', '/admin/unknown'])(
     '%s показывает «Страница не найдена» со ссылкой на главную',
-    (path) => {
+    async (path) => {
       renderApp(path)
 
-      const main = within(screen.getByRole('main'))
+      // Страница грузится отдельным чанком
       expect(
-        main.getByRole('heading', { name: 'Страница не найдена' }),
+        await screen.findByRole('heading', { name: 'Страница не найдена' }),
       ).toBeInTheDocument()
+      const main = within(screen.getByRole('main'))
       expect(main.getByRole('link', { name: 'На главную' })).toHaveAttribute(
         'href',
         '/',

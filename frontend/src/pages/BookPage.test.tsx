@@ -39,7 +39,10 @@ describe('список типов событий гостя', () => {
     renderApp('/book')
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Запись на звонок' }),
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Запись на звонок',
+      }),
     ).toBeInTheDocument()
     await eventTypeCard('Знакомство')
     const main = within(screen.getByRole('main'))
