@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/pillboxru/ai-for-developers-project-387/compare/call-calendar-v0.1.0...call-calendar-v0.1.1) (2026-10-28)
+
+
+### Performance Improvements
+
+* lazy-load pages except home ([#26](https://github.com/pillboxru/ai-for-developers-project-387/issues/26)) ([f73ea99](https://github.com/pillboxru/ai-for-developers-project-387/commit/f73ea99133abbabaa840a29c086b26b36c375d9f))
+
 ## 0.1.0 (2026-10-25)
 
 
