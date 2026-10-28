@@ -28,12 +28,14 @@ jobs:
     concurrency:
       group: opencode-review-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    # Замечания оставляет агент правами GitHub App, токену раннера чтение
+    # Ревью идёт токеном раннера (use_github_token), а не правами GitHub App
+    # через OIDC, как в учебных требованиях. Комментарий к PR идёт через API
+    # issues, но на PR GitHub требует ещё и pull-requests: write: с одним
+    # issues: write и реакция, и комментарий получают 403
     permissions:
-      id-token: write
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,6 +47,7 @@ jobs:
           # правки action запушил бы в ветку PR. Субагента не зовёт, а
           # разрешения, которые спрашивают человека, запрещены
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENCODE_CONFIG_CONTENT: |
             {
               "small_model": "console-anthropic/claude-haiku-5-5",
@@ -85,6 +88,7 @@ jobs:
             }}
           # Как в opencode.yml: сессию по ссылке не публикуем
           share: false
+          use_github_token: true
           prompt: |
             Сделай ревью этого pull request. Код не меняй и тесты не запускай:
             их гоняет CI. Прочитай AGENTS.md, diff и, где нужно, затронутые
